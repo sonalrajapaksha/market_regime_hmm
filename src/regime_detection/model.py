@@ -3,6 +3,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .validation import validate_training_data
+
 
 class GaussianHMM:
     def __init__(self, n_states, n_iter=200, tol=1e-5, random_state=42, cov_reg=1e-6):
@@ -84,6 +86,7 @@ class GaussianHMM:
 
     def fit(self, X, verbose=True, feature_names=None):
         X = self._validate_X(X)
+        validate_training_data(X, self.n_states)
         self._init_params(X)
         self.feature_names = list(feature_names) if feature_names else None
         self.loglik_history_ = []
@@ -114,6 +117,7 @@ class GaussianHMM:
                 break
             previous = loglik
         self._filtered_state = None
+        self.training_score_ = self.score(X)
         return self
 
     def predict_proba(self, X):

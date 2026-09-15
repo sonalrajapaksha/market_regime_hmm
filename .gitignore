@@ -1,0 +1,17 @@
+plots/*.png
+
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+
+
+venv/
+env/
+.venv/
+
+saved_models/*.npz
+.DS_Store
+.vscode/
+.idea/

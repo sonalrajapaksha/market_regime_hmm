@@ -1,59 +1,100 @@
-# HMM Market Regime Detection
+# Real-time Market Regime Detection
 
-A Hidden Markov Model, built from scratch that detects
-Bull/Bear regimes in S&P 500 data and backtests a simple trading strategy
-based on those regimes.
+An installable Gaussian HMM service that converts market prices into features,
+serves real-time regime probabilities, consumes Redis Streams, detects drift,
+and promotes retrained models only when they beat the active model on a held-out
+window.
 
-## Setup
+## Architecture
 
-```bash
-pip install -r requirements.txt
+```mermaid
+flowchart LR
+    P[Market prices] --> Poller[Polling producer]
+    Poller --> Redis[(Redis Stream)]
+    Redis --> API[FastAPI service]
+    Prices[Raw prices API] --> API
+    API --> HMM[Gaussian HMM filter]
+    HMM --> Response[Regime JSON]
+    API --> Log[(Prediction JSONL)]
+    Log --> Dashboard[Streamlit dashboard]
+    API --> Metrics[/Prometheus metrics/]
+    Scheduler[Scheduled retraining] --> Registry[(Versioned registry)]
+    Registry --> API
 ```
 
-## Run
-
-```bash
-python test_hmm_synthetic.py   
-python main.py  
-```
-
-## API service
-
-Install the package and start the API locally:
+## Local setup
 
 ```bash
 pip install -e ".[dev]"
-uvicorn api.main:app --reload
 ```
 
-Create a model before calling prediction endpoints:
+Train and register an initial model:
 
 ```bash
 PYTHONPATH=src:. python jobs/train.py --model-dir models
 ```
 
-The service exposes `/api/v1/health`, `/api/v1/ready`, `/api/v1/model`,
-`/api/v1/predict`, `/api/v1/predict/batch`, and `/api/v1/drift/check`.
-Prediction calls use the loaded model parameters. They update only the real-time
-filtered probability state; retraining is an explicit scheduled operation.
+Start the API:
 
-For Redis Streams ingestion, publish a JSON payload such as
-`{"features": [0.01, 0.02], "timestamp": "2026-09-15T12:00:00Z"}` to
-`market-observations`. Set `REDIS_URL` before starting the API. The scheduler
-can also be run directly with `PYTHONPATH=src:. python jobs/scheduler.py`.
-Prometheus metrics are available at `/metrics` and Prometheus runs on port 9090
-in Compose.
+```bash
+PYTHONPATH=src:. uvicorn api.main:app --reload
+```
 
-Run the API and Redis with Docker:
+The service does not retrain during prediction. Prediction requests only update
+the real-time filtered probability state. Retraining is performed by the
+scheduler and a candidate is promoted only when its held-out log-likelihood is
+at least as good as the active model.
+
+## API
+
+- `GET /api/v1/health`: liveness check
+- `GET /api/v1/ready`: readiness and active model version
+- `GET /api/v1/model`: model metadata
+- `POST /api/v1/predict`: predict from feature vectors
+- `POST /api/v1/predict/prices`: preprocess raw prices and return predictions
+- `POST /api/v1/predict/batch`: predict multiple feature vectors
+- `POST /api/v1/drift/check`: PSI and optional likelihood drift report
+- `POST /api/v1/admin/reload-model`: load the registry `latest` model
+- `GET /metrics`: Prometheus metrics
+
+Raw-price request example:
+
+```json
+{
+  "prices": [100, 101, 100.5, 102, 103, 102, 104, 105, 104, 106, 107, 108]
+}
+```
+
+## Streaming and scheduling
+
+Run a Redis-backed local stack:
 
 ```bash
 docker compose up --build
 ```
 
-## What it does
+Compose starts the API, Redis, price poller, scheduled retraining worker,
+Prometheus, and Streamlit dashboard. The poller publishes feature observations
+to the `market-observations` stream. To run workers manually:
 
-1. Trains the HMM on data before 2018
-2. Tests it on 2018–2024 data it never saw
-3. Backtests a simple strategy: hold stocks when the model says "Bull", stay out when it says "Bear"
-4. Compares that strategy to just buying and holding
-5. Saves 5 plots to `./plots/`
+```bash
+PYTHONPATH=src:. python jobs/poll.py --redis-url redis://localhost:6379/0
+PYTHONPATH=src:. python jobs/scheduler.py --interval-hours 24
+streamlit run dashboard.py
+```
+
+The model registry is intentionally filesystem-based: each version contains
+portable `.npz` parameters and JSON metadata, while `models/latest` is the
+production pointer. This can be replaced by MLflow or S3 without changing the
+model or API contracts.
+
+## Testing and CI
+
+```bash
+PYTHONPATH=src:. pytest
+ruff check .
+```
+
+Tests cover synthetic regime recovery, EM convergence, numerical edge cases,
+drift detection, API validation, raw-price preprocessing, and service health.
+GitHub Actions runs the test and lint commands on every push and pull request.

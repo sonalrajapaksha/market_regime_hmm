@@ -15,3 +15,7 @@ saved_models/*.npz
 .DS_Store
 .vscode/
 .idea/
+models/
+var/
+.pytest_cache/
+.ruff_cache/

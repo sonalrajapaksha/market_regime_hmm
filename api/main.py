@@ -9,11 +9,15 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from regime_detection.drift import drift_report
+from regime_detection.features import prices_to_features
 from regime_detection.ingestion import consume_stream
 from regime_detection.metrics import ACTIVE_MODEL, DRIFT_SCORE, PREDICTION_COUNT, REQUEST_COUNT, REQUEST_LATENCY, metrics_payload
+from regime_detection.monitoring import record_prediction
 from regime_detection.registry import ModelRegistry
 
 FEATURE_NAMES = ["LogReturn", "Volatility"]
@@ -68,6 +72,14 @@ class DriftRequest(BaseModel):
     reference: list[list[float]] = Field(..., min_length=2)
     current: list[list[float]] = Field(..., min_length=2)
     threshold: float = Field(0.2, gt=0)
+    reference_loglik: list[float] | None = None
+    current_loglik: list[float] | None = None
+    likelihood_threshold: float = Field(2.0, gt=0)
+
+
+class RawPriceRequest(BaseModel):
+    prices: list[float] = Field(..., min_length=11)
+    timestamps: list[datetime] | None = None
 
 
 def _require_model():
@@ -83,7 +95,7 @@ def _prediction(features, timestamp=None):
     state = int(np.argmax(probabilities))
     PREDICTION_COUNT.labels(str(state), active_model.metadata.get("version", "unknown")).inc()
     labels = active_model.metadata.get("state_labels", {})
-    return {
+    result = {
         "model_version": active_model.metadata.get("version", "unknown"),
         "timestamp": (timestamp or datetime.now(timezone.utc)).isoformat(),
         "state": state,
@@ -91,6 +103,8 @@ def _prediction(features, timestamp=None):
         "probabilities": probabilities.tolist(),
         "confidence": float(probabilities[state]),
     }
+    record_prediction(result)
+    return result
 
 
 @app.middleware("http")
@@ -101,6 +115,11 @@ async def observe_requests(request: Request, call_next):
     REQUEST_COUNT.labels(request.method, request.url.path, str(response.status_code)).inc()
     REQUEST_LATENCY.labels(request.url.path).observe(duration)
     return response
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_request, _error):
+    return JSONResponse(status_code=400, content={"detail": "invalid request payload"})
 
 
 @app.get("/api/v1/health")
@@ -143,9 +162,25 @@ async def predict_batch(request: BatchRequest):
 @app.post("/api/v1/drift/check")
 async def check_drift(request: DriftRequest):
     active_model = _require_model()
-    result = drift_report(request.reference, request.current, active_model.feature_names, request.threshold)
+    result = drift_report(request.reference, request.current, active_model.feature_names, request.threshold, request.reference_loglik, request.current_loglik, request.likelihood_threshold)
     DRIFT_SCORE.set(result["score"])
     return result
+
+
+@app.post("/api/v1/predict/prices")
+async def predict_prices(request: RawPriceRequest):
+    active_model = _require_model()
+    frame = prices_to_features(request.prices, request.timestamps)
+    with model_lock:
+        probabilities = active_model.filter(frame[["LogReturn", "Volatility"]].values, reset=True)
+    labels = active_model.metadata.get("state_labels", {})
+    results = []
+    for index, values in enumerate(probabilities):
+        state = int(np.argmax(values))
+        result = {"model_version": active_model.metadata.get("version", "unknown"), "timestamp": (request.timestamps[index + 10] if request.timestamps else datetime.now(timezone.utc)).isoformat(), "state": state, "regime": labels.get(str(state), f"State{state}"), "probabilities": values.tolist(), "confidence": float(values[state])}
+        record_prediction(result)
+        results.append(result)
+    return {"predictions": results}
 
 
 @app.post("/api/v1/admin/reload-model")

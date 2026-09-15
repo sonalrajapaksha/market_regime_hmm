@@ -9,3 +9,4 @@ pytest
 httpx
 prometheus-client
 redis
+streamlit

@@ -21,6 +21,11 @@ services:
       - ./models:/app/models
     depends_on:
       - redis
+  poller:
+    build: .
+    command: ["python", "jobs/poll.py", "--redis-url", "redis://redis:6379/0"]
+    depends_on:
+      - redis
   prometheus:
     image: prom/prometheus:v2.54.1
     ports:
@@ -29,3 +34,12 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       - api
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "dashboard.py", "--server.address", "0.0.0.0"]
+    ports:
+      - "8501:8501"
+    environment:
+      PREDICTION_LOG: /app/var/predictions.jsonl
+    volumes:
+      - ./var:/app/var

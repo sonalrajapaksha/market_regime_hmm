@@ -22,4 +22,11 @@ def test_health_and_prediction():
 
 def test_invalid_features_are_rejected():
     client = TestClient(main.app)
-    assert client.post("/api/v1/predict", json={"features": ["bad"]}).status_code == 422
+    assert client.post("/api/v1/predict", json={"features": ["bad"]}).status_code == 400
+
+
+def test_raw_prices_are_converted_to_predictions():
+    client = TestClient(main.app)
+    response = client.post("/api/v1/predict/prices", json={"prices": list(range(1, 13))})
+    assert response.status_code == 200
+    assert len(response.json()["predictions"]) == 2

@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 dependencies = ["numpy", "pandas", "yfinance", "fastapi", "uvicorn[standard]", "prometheus-client", "redis"]
 
 [project.optional-dependencies]
-dev = ["pytest", "httpx", "ruff"]
+dev = ["pytest", "httpx", "ruff", "streamlit"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

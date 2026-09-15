@@ -1,6 +1,6 @@
 import numpy as np
 
-from regime_detection.drift import drift_report
+from regime_detection.drift import drift_report, likelihood_drift
 
 
 def test_identical_distributions_are_not_drifted():
@@ -13,3 +13,9 @@ def test_shifted_distribution_is_drifted():
     reference = np.zeros((100, 1))
     current = np.ones((100, 1))
     assert drift_report(reference, current, ["x"])["drift_detected"]
+
+
+def test_likelihood_drop_is_drifted():
+    result = likelihood_drift([10, 11, 9, 10], [3, 4])
+    assert result["drifted"]
+    assert drift_report([[0], [1]], [[0], [1]], ["x"], reference_loglik=[10, 11, 9, 10], current_loglik=[3, 4])["drift_detected"]

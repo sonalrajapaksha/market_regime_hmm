@@ -1,11 +1,15 @@
 import argparse
 import json
+import logging
 import time
 from datetime import datetime, timezone
 
 from redis import Redis
+from redis.exceptions import RedisError
 
 from regime_detection.features import FEATURE_NAMES, add_features, load_price_data
+
+logger = logging.getLogger(__name__)
 
 
 def publish_latest(redis_client, stream, ticker):
@@ -27,8 +31,8 @@ def main():
     while True:
         try:
             publish_latest(client, args.stream, args.ticker)
-        except Exception as error:
-            print(f"poll failed: {error}")
+        except (ConnectionError, KeyError, RedisError, TimeoutError, ValueError) as error:
+            logger.warning("poll failed", extra={"error": str(error)})
         time.sleep(args.interval_seconds)
 
 

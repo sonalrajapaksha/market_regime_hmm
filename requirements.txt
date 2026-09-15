@@ -6,7 +6,8 @@ fastapi
 uvicorn[standard]
 pydantic
 pytest
-httpx
+httpx2
 prometheus-client
 redis
 streamlit
+mlflow

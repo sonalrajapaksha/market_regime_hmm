@@ -23,7 +23,10 @@ async def consume_stream(
             if "BUSYGROUP" not in str(error):
                 raise
         while True:
-            messages = await client.xreadgroup(group, consumer, {stream: ">"}, count=10, block=5000)
+            claimed = await client.xautoclaim(stream, group, consumer, min_idle_time=60_000, start_id="0-0", count=10)
+            claimed_entries = claimed[1] if len(claimed) > 1 else []
+            messages = [(stream, claimed_entries)] if claimed_entries else []
+            messages.extend(await client.xreadgroup(group, consumer, {stream: ">"}, count=10, block=5000))
             for _, entries in messages:
                 for message_id, fields in entries:
                     try:

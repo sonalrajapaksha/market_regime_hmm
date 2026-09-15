@@ -19,3 +19,4 @@ models/
 var/
 .pytest_cache/
 .ruff_cache/
+mlruns/

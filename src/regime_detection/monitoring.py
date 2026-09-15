@@ -1,13 +1,18 @@
 import json
 import os
 from pathlib import Path
+from threading import Lock
+
+
+_write_lock = Lock()
 
 
 def record_prediction(payload):
     path = Path(os.getenv("PREDICTION_LOG", "var/predictions.jsonl"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as output:
-        output.write(json.dumps(payload) + "\n")
+    line = json.dumps(payload, separators=(",", ":")) + "\n"
+    with _write_lock, path.open("a", encoding="utf-8") as output:
+        output.write(line)
 
 
 def read_predictions(path=None):

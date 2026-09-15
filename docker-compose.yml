@@ -6,27 +6,43 @@ services:
     environment:
       MODEL_DIR: /app/models
       REDIS_URL: redis://redis:6379/0
+      MODEL_RELOAD_SECONDS: "5"
     volumes:
       - ./models:/app/models
       - ./var:/app/var
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
   scheduler:
     build: .
     command: ["python", "jobs/scheduler.py", "--interval-hours", "24", "--model-dir", "/app/models"]
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./models:/app/models
     depends_on:
-      - redis
+      mlflow:
+        condition: service_healthy
   poller:
     build: .
     command: ["python", "jobs/poll.py", "--redis-url", "redis://redis:6379/0"]
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
   prometheus:
     image: prom/prometheus:v2.54.1
     ports:
@@ -35,6 +51,29 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       - api
+  mlflow:
+    build: .
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - sqlite:////mlflow/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination
+      - /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
   dashboard:
     build: .
     command: ["streamlit", "run", "dashboard.py", "--server.address", "0.0.0.0"]
@@ -44,3 +83,6 @@ services:
       PREDICTION_LOG: /app/var/predictions.jsonl
     volumes:
       - ./var:/app/var
+
+volumes:
+  mlflow-data:

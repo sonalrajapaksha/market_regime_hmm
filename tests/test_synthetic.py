@@ -17,7 +17,7 @@ def test_hmm_recovers_known_synthetic_regimes():
     model = GaussianHMM(2, n_iter=80, tol=1e-6, random_state=1).fit(observations, verbose=False)
     predicted = model.predict(observations)
     accuracy = max(np.mean(predicted == states), np.mean(predicted == (1 - states)))
-    assert accuracy > 0.85
+    assert accuracy > 0.99
     assert validate_convergence(model.loglik_history_)
 
 
@@ -27,3 +27,4 @@ def test_edge_cases_are_rejected_or_stable():
         model.fit(np.ones((10, 2)), verbose=False)
     fitted = GaussianHMM(2, n_iter=10).fit(np.random.default_rng(1).normal(size=(20, 2)), verbose=False)
     assert np.isfinite(fitted.predict([[0.1, -0.2]])).all()
+    assert np.isfinite(fitted.predict_proba([[1e100, -1e100]])).all()

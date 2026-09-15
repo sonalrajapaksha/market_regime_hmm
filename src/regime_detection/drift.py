@@ -8,15 +8,24 @@ def likelihood_drift(reference, current, z_threshold=2.0):
     baseline = float(reference.mean())
     spread = max(float(reference.std(ddof=1)), 1e-12)
     z_score = (baseline - float(np.mean(current))) / spread
-    return {"baseline": baseline, "current": float(np.mean(current)), "z_score": z_score, "drifted": z_score >= z_threshold, "threshold": z_threshold}
+    return {
+        "baseline": baseline,
+        "current": float(np.mean(current)),
+        "z_score": z_score,
+        "drifted": z_score >= z_threshold,
+        "threshold": z_threshold,
+    }
 
 
 def psi(reference, current, bins=10):
     reference, current = np.asarray(reference, dtype=float), np.asarray(current, dtype=float)
+    if reference.size < 2 or current.size == 0 or not np.isfinite(reference).all() or not np.isfinite(current).all():
+        raise ValueError("PSI samples must be finite and non-empty")
     edges = np.unique(np.quantile(reference, np.linspace(0, 1, bins + 1)))
     if len(edges) < 3:
         scale = max(float(np.std(reference)), 1e-12)
         return 0.0 if abs(float(np.mean(current) - np.mean(reference))) <= scale else 1.0
+    edges[0], edges[-1] = -np.inf, np.inf
     expected, _ = np.histogram(reference, bins=edges)
     actual, _ = np.histogram(current, bins=edges)
     expected = (expected + 1e-6) / (expected.sum() + 1e-6 * len(expected))
@@ -24,11 +33,21 @@ def psi(reference, current, bins=10):
     return float(np.sum((actual - expected) * np.log(actual / expected)))
 
 
-def drift_report(reference, current, feature_names=None, threshold=0.2, reference_loglik=None, current_loglik=None, likelihood_threshold=2.0):
+def drift_report(
+    reference,
+    current,
+    feature_names=None,
+    threshold=0.2,
+    reference_loglik=None,
+    current_loglik=None,
+    likelihood_threshold=2.0,
+):
     reference, current = np.asarray(reference, dtype=float), np.asarray(current, dtype=float)
     if reference.ndim != 2 or current.ndim != 2 or reference.shape[1] != current.shape[1]:
         raise ValueError("reference and current must be 2D arrays with matching features")
     names = feature_names or [f"feature_{i}" for i in range(reference.shape[1])]
+    if len(names) != reference.shape[1]:
+        raise ValueError("feature_names must match the number of features")
     features = {name: {"score": psi(reference[:, i], current[:, i]), "drifted": False} for i, name in enumerate(names)}
     for result in features.values():
         result["drifted"] = result["score"] >= threshold

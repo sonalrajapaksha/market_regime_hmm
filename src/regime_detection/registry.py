@@ -13,6 +13,8 @@ class ModelRegistry:
 
     def save(self, model, version, metadata=None, promote=True):
         directory = self.root / version
+        if directory.exists():
+            raise FileExistsError(f"model version already exists: {version}")
         model.save(directory, {"version": version, **(metadata or {})})
         if promote:
             self.promote(version)
@@ -30,4 +32,8 @@ class ModelRegistry:
         temporary.replace(latest)
 
     def versions(self):
-        return sorted(path.name for path in self.root.iterdir() if path.is_dir() and path.name != "latest") if self.root.exists() else []
+        return (
+            sorted(path.name for path in self.root.iterdir() if path.is_dir() and path.name != "latest")
+            if self.root.exists()
+            else []
+        )

@@ -99,7 +99,9 @@ class GaussianHMM:
             gamma /= gamma.sum(axis=1, keepdims=True)
             xi = np.zeros((len(X) - 1, self.n_states, self.n_states))
             for index in range(len(X) - 1):
-                xi[index] = (alpha[index][:, None] * self.A * emissions[index + 1][None, :] * beta[index + 1][None, :]) / scales[index + 1]
+                xi[index] = (
+                    alpha[index][:, None] * self.A * emissions[index + 1][None, :] * beta[index + 1][None, :]
+                ) / scales[index + 1]
             self.pi = gamma[0]
             self.A = xi.sum(axis=0) / np.maximum(gamma[:-1].sum(axis=0)[:, None], 1e-300)
             self.A /= np.maximum(self.A.sum(axis=1, keepdims=True), 1e-300)
@@ -129,15 +131,26 @@ class GaussianHMM:
 
     def filter(self, X, reset=True):
         X = self._validate_X(X)
-        state = self.pi.copy() if reset or self._filtered_state is None else self._filtered_state.copy()
+        state = None if reset or self._filtered_state is None else self._filtered_state.copy()
+        probabilities, state = self.filter_from_state(X, state)
+        self._filtered_state = state
+        return probabilities
+
+    def filter_from_state(self, X, state=None):
+        """Filter observations from an explicit state without mutating the model."""
+        X = self._validate_X(X)
+        if state is not None:
+            state = np.asarray(state, dtype=float)
+            if state.shape != (self.n_states,) or not np.isfinite(state).all() or state.sum() <= 0:
+                raise ValueError("state must be a finite probability vector")
+            state = state / state.sum()
         probabilities = []
         for observation in X:
             emission = self._emission_prob(observation.reshape(1, -1))[0]
-            state = (state @ self.A) * emission
+            state = (self.pi if state is None else state @ self.A) * emission
             state /= max(state.sum(), 1e-300)
             probabilities.append(state.copy())
-        self._filtered_state = state
-        return np.asarray(probabilities)
+        return np.asarray(probabilities), state
 
     def predict(self, X):
         X = self._validate_X(X)
@@ -166,15 +179,43 @@ class GaussianHMM:
         path = Path(directory)
         path.mkdir(parents=True, exist_ok=True)
         np.savez(path / "parameters.npz", pi=self.pi, A=self.A, means=self.means, covars=self.covars)
-        payload = {"n_states": self.n_states, "n_iter": self.n_iter, "tol": self.tol, "cov_reg": self.cov_reg, "feature_names": self.feature_names, **self.metadata, **(metadata or {})}
+        payload = {
+            "n_states": self.n_states,
+            "n_iter": self.n_iter,
+            "tol": self.tol,
+            "cov_reg": self.cov_reg,
+            "feature_names": self.feature_names,
+            **self.metadata,
+            **(metadata or {}),
+        }
         (path / "metadata.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, directory):
         path = Path(directory)
         metadata = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
-        model = cls(metadata["n_states"], metadata.get("n_iter", 200), metadata.get("tol", 1e-5), cov_reg=metadata.get("cov_reg", 1e-6))
+        model = cls(
+            metadata["n_states"],
+            metadata.get("n_iter", 200),
+            metadata.get("tol", 1e-5),
+            cov_reg=metadata.get("cov_reg", 1e-6),
+        )
         parameters = np.load(path / "parameters.npz")
-        model.pi, model.A, model.means, model.covars = parameters["pi"], parameters["A"], parameters["means"], parameters["covars"]
+        model.pi, model.A, model.means, model.covars = (
+            parameters["pi"],
+            parameters["A"],
+            parameters["means"],
+            parameters["covars"],
+        )
+        if model.pi.shape != (model.n_states,) or model.A.shape != (model.n_states, model.n_states):
+            raise ValueError("invalid model parameter shapes")
+        if model.means.ndim != 2 or model.means.shape[0] != model.n_states or model.covars.shape != model.means.shape:
+            raise ValueError("invalid emission parameter shapes")
+        if not all(np.isfinite(value).all() for value in (model.pi, model.A, model.means, model.covars)):
+            raise ValueError("model parameters must be finite")
+        if (model.pi < 0).any() or (model.A < 0).any() or (model.covars <= 0).any():
+            raise ValueError("model probabilities and covariances are invalid")
+        if not np.isclose(model.pi.sum(), 1.0) or not np.allclose(model.A.sum(axis=1), 1.0):
+            raise ValueError("model probabilities must be normalized")
         model.feature_names, model.metadata = metadata.get("feature_names"), metadata
         return model

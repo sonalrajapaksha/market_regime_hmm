@@ -16,8 +16,14 @@ else:
     left, right = st.columns(2)
     left.metric("Predictions", len(frame))
     right.metric("Latest regime", frame.iloc[-1]["regime"])
-    distribution = frame["regime"].value_counts().rename("count")
-    st.subheader("Regime distribution")
-    st.bar_chart(distribution)
+    window = st.selectbox("Rolling distribution window", (25, 50, 100, 250), index=1)
+    regimes = sorted(frame["regime"].unique())
+    rolling = pd.concat(
+        {regime: frame["regime"].eq(regime).rolling(window, min_periods=1).mean() for regime in regimes},
+        axis=1,
+    )
+    rolling.index = frame["timestamp"]
+    st.subheader("Rolling regime proportion")
+    st.line_chart(rolling)
     st.subheader("Confidence over time")
     st.line_chart(frame.set_index("timestamp")["confidence"])

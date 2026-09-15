@@ -2,8 +2,8 @@
 
 An installable Gaussian HMM service that converts market prices into features,
 serves real-time regime probabilities, consumes Redis Streams, detects drift,
-and promotes retrained models only when they beat the active model on a held-out
-window.
+and retrains only after drift is detected. Candidates are promoted only when
+they beat the active model on a held-out window.
 
 ## Architecture
 
@@ -40,10 +40,12 @@ Start the API:
 PYTHONPATH=src:. uvicorn api.main:app --reload
 ```
 
-The service does not retrain during prediction. Prediction requests only update
-the real-time filtered probability state. Retraining is performed by the
-scheduler and a candidate is promoted only when its held-out log-likelihood is
-at least as good as the active model.
+The service does not retrain during prediction. Stateless requests are isolated;
+callers that need continuous filtering provide a stable `series_id`. Retraining
+is performed by the scheduler after a PSI or likelihood drift signal. A
+candidate is promoted only when its per-observation held-out log-likelihood is
+at least as good as the active model. The API watches the registry and loads a
+newly promoted model without manual intervention.
 
 ## API
 
@@ -54,7 +56,8 @@ at least as good as the active model.
 - `POST /api/v1/predict/prices`: preprocess raw prices and return predictions
 - `POST /api/v1/predict/batch`: predict multiple feature vectors
 - `POST /api/v1/drift/check`: PSI and optional likelihood drift report
-- `POST /api/v1/admin/reload-model`: load the registry `latest` model
+- `POST /api/v1/admin/reload-model`: load `latest` immediately (requires the
+  `ADMIN_TOKEN` environment variable and matching `X-Admin-Token` header)
 - `GET /metrics`: Prometheus metrics
 
 Raw-price request example:
@@ -74,8 +77,9 @@ docker compose up --build
 ```
 
 Compose starts the API, Redis, price poller, scheduled retraining worker,
-Prometheus, and Streamlit dashboard. The poller publishes feature observations
-to the `market-observations` stream. To run workers manually:
+MLflow (port 5000), Prometheus, and Streamlit dashboard. The poller publishes
+each new five-minute market bar once to the `market-observations` stream. To run
+workers manually:
 
 ```bash
 PYTHONPATH=src:. python jobs/poll.py --redis-url redis://localhost:6379/0
@@ -83,10 +87,11 @@ PYTHONPATH=src:. python jobs/scheduler.py --interval-hours 24
 streamlit run dashboard.py
 ```
 
-The model registry is intentionally filesystem-based: each version contains
-portable `.npz` parameters and JSON metadata, while `models/latest` is the
-production pointer. This can be replaced by MLflow or S3 without changing the
-model or API contracts.
+Each version contains portable `.npz` parameters and JSON metadata, while
+`models/latest` is the atomic production pointer. Training runs, parameters,
+metrics, promotion status, and portable model artifacts are also recorded in
+MLflow. Set `MLFLOW_TRACKING_URI` to use a shared tracking server; otherwise
+MLflow uses its local default store.
 
 ## Testing and CI
 

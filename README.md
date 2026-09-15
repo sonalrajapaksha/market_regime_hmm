@@ -187,8 +187,7 @@ curl -i http://localhost:8000/api/v1/ready
 | Streamlit dashboard | <http://localhost:8501> |
 | Prometheus | <http://localhost:9090> |
 
-MLflow uses port 5000 inside Docker and port 5001 on the host to avoid a common
-macOS port conflict. Host ports can be changed in a `.env` file:
+MLflow uses port 5000 inside Docker and port 5001 on the host to avoid port conflicts. Host ports can be changed in a `.env` file:
 
 ```dotenv
 API_PORT=18000

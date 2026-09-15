@@ -10,7 +10,6 @@ running one as a small, reliable system. Alongside the HMM itself, the project
 includes streaming ingestion, model validation and promotion, drift detection,
 monitoring, and a Docker Compose setup that runs the full stack locally.
 
-
 ## What it demonstrates
 
 - A Gaussian HMM implemented from scratch with NumPy
@@ -87,7 +86,7 @@ Each hidden state has its own diagonal Gaussian distribution:
 
 $$
 p(x_t \mid z_t=k) = \mathcal{N}(x_t; \mu_k,
-\operatorname{diag}(\sigma_k^2)).
+\mathrm{diag}(\sigma_k^2)).
 $$
 
 The transition matrix

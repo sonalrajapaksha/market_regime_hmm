@@ -7,3 +7,5 @@ uvicorn[standard]
 pydantic
 pytest
 httpx
+prometheus-client
+redis

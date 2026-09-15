@@ -5,6 +5,7 @@ services:
       - "8000:8000"
     environment:
       MODEL_DIR: /app/models
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ./models:/app/models
     depends_on:
@@ -13,3 +14,18 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+  scheduler:
+    build: .
+    command: ["python", "jobs/scheduler.py", "--interval-hours", "24", "--model-dir", "/app/models"]
+    volumes:
+      - ./models:/app/models
+    depends_on:
+      - redis
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api

@@ -1,8 +1,14 @@
+x-app-image: &app-image
+  image: market-regime-hmm:local
+
 services:
   api:
-    build: .
+    <<: *app-image
+    restart: unless-stopped
+    build:
+      context: .
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     environment:
       MODEL_DIR: /app/models
       REDIS_URL: redis://redis:6379/0
@@ -20,39 +26,46 @@ services:
       retries: 5
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
   scheduler:
-    build: .
+    <<: *app-image
+    restart: unless-stopped
     command: ["python", "jobs/scheduler.py", "--interval-hours", "24", "--model-dir", "/app/models"]
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      GIT_PYTHON_REFRESH: quiet
     volumes:
       - ./models:/app/models
     depends_on:
       mlflow:
         condition: service_healthy
   poller:
-    build: .
+    <<: *app-image
+    restart: unless-stopped
     command: ["python", "jobs/poll.py", "--redis-url", "redis://redis:6379/0"]
     depends_on:
       redis:
         condition: service_healthy
   prometheus:
     image: prom/prometheus:v2.54.1
+    restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
-      - api
+      api:
+        condition: service_healthy
   mlflow:
-    build: .
+    <<: *app-image
+    restart: unless-stopped
     command:
       - mlflow
       - server
@@ -65,8 +78,10 @@ services:
       - --serve-artifacts
       - --artifacts-destination
       - /mlflow/artifacts
+      - --allowed-hosts
+      - mlflow:5000,localhost:5000,localhost:${MLFLOW_PORT:-5001},127.0.0.1:5000,127.0.0.1:${MLFLOW_PORT:-5001}
     ports:
-      - "5000:5000"
+      - "${MLFLOW_PORT:-5001}:5000"
     volumes:
       - mlflow-data:/mlflow
     healthcheck:
@@ -75,10 +90,11 @@ services:
       timeout: 5s
       retries: 12
   dashboard:
-    build: .
+    <<: *app-image
+    restart: unless-stopped
     command: ["streamlit", "run", "dashboard.py", "--server.address", "0.0.0.0"]
     ports:
-      - "8501:8501"
+      - "${DASHBOARD_PORT:-8501}:8501"
     environment:
       PREDICTION_LOG: /app/var/predictions.jsonl
     volumes:

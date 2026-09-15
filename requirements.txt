@@ -1,12 +1,9 @@
 numpy
 pandas
-matplotlib
 yfinance
 fastapi
 uvicorn[standard]
 pydantic
-pytest
-httpx2
 prometheus-client
 redis
 streamlit

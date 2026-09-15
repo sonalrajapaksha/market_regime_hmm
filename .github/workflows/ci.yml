@@ -14,4 +14,4 @@ jobs:
           python-version: "3.13"
       - run: pip install -e ".[dev]"
       - run: pytest
-      - run: ruff check .
+      - run: ruff check . --output-format=github
